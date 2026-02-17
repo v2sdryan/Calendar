@@ -41,28 +41,69 @@
       <div class="month" id="monthLabel"></div>
       <button id="next">下個月 →</button>
       <button id="todayBtn">今日</button>
+      <button id="saveBtn" disabled>手動儲存</button>
     </div>
     <div class="grid" id="weekHeader"></div>
     <div class="grid" id="calendar"></div>
-    <p class="tip">資料會自動儲存喺你部機（localStorage）。</p>
+    <p class="tip" id="syncTip">資料以 Firebase 雲端為主（跨手機共用同一份）。</p>
   </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+async function loadFirebaseConfig(){
+  const res = await fetch("/api/firebase-config", { cache: "no-store" });
+  if(!res.ok) throw new Error("未能載入 Firebase 設定");
+  const cfg = await res.json();
+  if(!cfg?.apiKey) throw new Error("Firebase 設定不完整");
+  return cfg;
+}
+
 const week = ["日","一","二","三","四","五","六"];
 const weekHeader = document.getElementById('weekHeader');
 const calendar = document.getElementById('calendar');
 const monthLabel = document.getElementById('monthLabel');
-const KEY = 'kids-study-calendar-v1';
-let store = JSON.parse(localStorage.getItem(KEY) || '{}');
+const syncTip = document.getElementById('syncTip');
+let store = {};
 let cursor = new Date();
 cursor.setDate(1);
+let cloudDocRef;
+let cloudReady = false;
+let saveTimer;
 
 week.forEach(d=>{ const el=document.createElement('div'); el.className='dow'; el.textContent='星期'+d; weekHeader.appendChild(el); });
 
 function pad(n){ return String(n).padStart(2,'0'); }
 function k(date,slot){ return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}-${slot}`; }
 
-function save(){ localStorage.setItem(KEY, JSON.stringify(store)); }
+function saveLocal(){}
+
+async function saveCloudNow(){
+  if(!cloudReady) throw new Error('Firebase 尚未連線完成');
+  await setDoc(cloudDocRef, {
+    updatedAt: serverTimestamp(),
+    data: store
+  }, { merge: true });
+}
+
+function scheduleCloudSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async ()=>{
+    try {
+      await saveCloudNow();
+      syncTip.textContent = '✅ 已同步到 Firebase 雲端';
+    } catch {
+      syncTip.textContent = '⚠️ 雲端同步失敗，已保存在本機';
+    }
+  }, 450);
+}
+
+function save(){
+  saveLocal();
+  scheduleCloudSave();
+}
 
 function addTask(key, text){
   if(!text.trim()) return;
@@ -129,7 +170,58 @@ document.getElementById('prev').onclick = ()=>{ cursor.setMonth(cursor.getMonth(
 document.getElementById('next').onclick = ()=>{ cursor.setMonth(cursor.getMonth()+1); render(); };
 document.getElementById('todayBtn').onclick = ()=>{ cursor = new Date(); cursor.setDate(1); render(); };
 
-render();
+
+document.getElementById('saveBtn').onclick = async ()=>{
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = '儲存中...';
+  try {
+    await saveCloudNow();
+    syncTip.textContent = '✅ 手動儲存成功（Firebase）';
+    alert('✅ 已成功儲存到 Firebase');
+  } catch (err) {
+    console.error(err);
+    syncTip.textContent = '❌ 儲存失敗：請檢查 Firestore Rules';
+    alert('❌ 儲存失敗，請檢查 Firestore Rules');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+};
+
+async function initFirebaseSync(){
+  try {
+    const firebaseConfig = await loadFirebaseConfig();
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    await signInAnonymously(auth);
+    cloudDocRef = doc(db, 'calendars', 'kids-study-main');
+
+    const snap = await getDoc(cloudDocRef);
+    if (snap.exists() && snap.data()?.data) {
+      store = snap.data().data;
+      saveLocal();
+      syncTip.textContent = '☁️ 已載入 Firebase 雲端資料';
+    } else {
+      cloudReady = true;
+      await saveCloudNow();
+      syncTip.textContent = '☁️ Firebase 已連接（首次建立）';
+    }
+
+    cloudReady = true;
+    document.getElementById('saveBtn').disabled = false;
+    render();
+  } catch (err) {
+    console.error(err);
+    syncTip.textContent = '⚠️ Firebase 連接失敗，未能雲端同步';
+    const b = document.getElementById('saveBtn'); b.disabled = true; b.textContent = '手動儲存（未連線）';
+    render();
+  }
+}
+
+initFirebaseSync();
 </script>
 </body>
 </html>
