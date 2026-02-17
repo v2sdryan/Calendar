@@ -53,13 +53,14 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-async function loadFirebaseConfig(){
-  const res = await fetch("/api/firebase-config", { cache: "no-store" });
-  if(!res.ok) throw new Error("未能載入 Firebase 設定");
-  const cfg = await res.json();
-  if(!cfg?.apiKey) throw new Error("Firebase 設定不完整");
-  return cfg;
-}
+const firebaseConfig = {
+  apiKey: "AIzaSyBayCCHINQIwv5jjO9951XQS52f3weuVsI",
+  authDomain: "cala-3bc23.firebaseapp.com",
+  projectId: "cala-3bc23",
+  storageBucket: "cala-3bc23.firebasestorage.app",
+  messagingSenderId: "429922557235",
+  appId: "1:429922557235:web:0a71cba6ea0a6b00cf3246"
+};
 
 const week = ["日","一","二","三","四","五","六"];
 const weekHeader = document.getElementById('weekHeader');
@@ -192,7 +193,6 @@ document.getElementById('saveBtn').onclick = async ()=>{
 
 async function initFirebaseSync(){
   try {
-    const firebaseConfig = await loadFirebaseConfig();
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
